@@ -1,7 +1,8 @@
 from prefect import task, Flow, Parameter, Client
 from prefect.run_configs import KubernetesRun
 from prefect.schedules import IntervalSchedule
-from prefect.storage import S3
+from prefect.storage import GitHub
+
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
@@ -63,27 +64,16 @@ def train_model(data, mlflow_experiment_id, alpha=0.5, l1_ratio=0.5):
 prefect_project_name = "wine-quality-project"         # you can use what you want here
 docker_image = "drtools/prefect:wine-classifier-3"    # any docker image that has the required Python dependencies
 prefect_url = f"http://10.0.0.10:4200/graphql"
+schedule = IntervalSchedule(interval=timedelta(minutes=2))
 
-def create_prefect_flow():
-    run_config = KubernetesRun(
+
+with Flow("train-wine-quality-model", schedule) as flow:
+        data = fetch_data()
+        train_model(data=data, mlflow_experiment_id=1, alpha=0.3, l1_ratio=0.3)
+        
+flow.run_config = KubernetesRun(
         labels=["dev"],
         service_account_name="prefect-server-serviceaccount",
         image=docker_image
     )
-    storage = S3(s3_bucket)
-
-    
-    prefect_client = Client(api_server=prefect_url)
-    schedule = IntervalSchedule(interval=timedelta(minutes=2))
-
-    with Flow("train-wine-quality-model", schedule, storage=storage, run_config=run_config) as flow:
-        data = fetch_data()
-        train_model(data=data, mlflow_experiment_id=1, alpha=0.3, l1_ratio=0.3)
-
-    training_flow_id = prefect_client.register(flow, project_name=prefect_project_name)
-    flow_run_id = prefect_client.create_flow_run(flow_id=training_flow_id, run_name=f"run {prefect_project_name}")
-        
-        
-        
-            
-    
+flow.storage = GitHub(repo="ksvcu/ml", path="flows/winepredict.py")
